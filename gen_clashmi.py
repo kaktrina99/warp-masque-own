@@ -20,6 +20,15 @@ def load_warp_config():
         return json.load(f)
 
 
+def derive_public_key(priv_b64):
+    """從 base64 私鑰推導 X25519 公鑰（WireGuard/MASQUE 用）。"""
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    raw = base64.b64decode(priv_b64)
+    priv = X25519PrivateKey.from_private_bytes(raw)
+    pub = priv.public_key()
+    return base64.b64encode(pub.public_bytes_raw()).decode()
+
+
 def main():
     if len(sys.argv) != 5:
         print(__doc__)
@@ -30,25 +39,24 @@ def main():
     wc = load_warp_config()
 
     # warp-config.json 由 warp_register.py 生成
-    # 兼容多種可能的鍵名
+    # 兼容多種可能的鍵名；公鑰從私鑰推導（X25519）
     priv = wc.get("private_key") or wc.get("privateKey") or wc.get("masque_private_key")
-    pub = wc.get("public_key") or wc.get("publicKey") or wc.get("masque_public_key")
     v4 = wc.get("ip") or wc.get("ipv4") or wc.get("warp_ip")
     v6 = wc.get("ipv6") or wc.get("warp_ipv6")
 
     missing = []
     if not priv:
         missing.append("private_key")
-    if not pub:
-        missing.append("public_key")
     if not v4:
-        missing.append("ip")
+        missing.append("ipv4")
     if not v6:
         missing.append("ipv6")
     if missing:
         print(f"錯誤：warp-config.json 裡找不到：{', '.join(missing)}", file=sys.stderr)
         print("可用的鍵：", list(wc.keys()), file=sys.stderr)
         sys.exit(1)
+
+    pub = derive_public_key(priv)
 
     # MASQUE 節點：沿用 warp_register.py 的接入點
     masque_ip = "162.159.198.1"
