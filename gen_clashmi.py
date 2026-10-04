@@ -12,26 +12,11 @@
 """
 import json
 import sys
-import base64
 
 
 def load_warp_config():
     with open("warp-config.json") as f:
         return json.load(f)
-
-
-def derive_public_key(priv_b64):
-    """從 base64 SEC1 DER 私鑰推導 PKIX DER 公鑰（P-256，MASQUE 用）。"""
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.primitives import serialization
-    raw = base64.b64decode(priv_b64)
-    priv = serialization.load_der_private_key(raw, password=None)
-    pub = priv.public_key()
-    pub_der = pub.public_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    return base64.b64encode(pub_der).decode()
 
 
 def main():
@@ -44,14 +29,17 @@ def main():
     wc = load_warp_config()
 
     # warp-config.json 由 warp_register.py 生成
-    # 兼容多種可能的鍵名；公鑰從私鑰推導（X25519）
+    # private-key: 用戶私鑰；public-key: Cloudflare 接入點公鑰（endpoint_pub_key 去 PEM 頭尾）
     priv = wc.get("private_key") or wc.get("privateKey") or wc.get("masque_private_key")
+    endpoint_pub = wc.get("endpoint_pub_key") or wc.get("endpointPubKey")
     v4 = wc.get("ip") or wc.get("ipv4") or wc.get("warp_ip")
     v6 = wc.get("ipv6") or wc.get("warp_ipv6")
 
     missing = []
     if not priv:
         missing.append("private_key")
+    if not endpoint_pub:
+        missing.append("endpoint_pub_key")
     if not v4:
         missing.append("ipv4")
     if not v6:
@@ -61,7 +49,11 @@ def main():
         print("可用的鍵：", list(wc.keys()), file=sys.stderr)
         sys.exit(1)
 
-    pub = derive_public_key(priv)
+    # 去掉 PEM 頭尾，只留 base64 DER
+    pub = "".join(
+        ln.strip() for ln in endpoint_pub.strip().splitlines()
+        if ln.strip() and not ln.startswith("-----")
+    )
 
     # MASQUE 節點：沿用 warp_register.py 的接入點
     masque_ip = "162.159.198.1"
@@ -69,7 +61,6 @@ def main():
 
     yaml_content = f"""# ClashMi 配置：WARP MASQUE -> Opera 美國出口 -> 目標
 # 由 gen_clashmi.py 自動生成
-# 用法：導入 ClashMi，選擇 "ai-us" 節點
 
 proxies:
   - name: warp-masque
@@ -80,10 +71,7 @@ proxies:
     public-key: {pub}
     ip: {v4}
     ipv6: {v6}
-    mtu: 1280
     udp: true
-    remote-dns-resolve: true
-    dns: [1.1.1.1, 2606:4700:4700::1111]
 
   - name: ai-us
     type: http
