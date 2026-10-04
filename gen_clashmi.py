@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""生成 ClashMi (mihomo) 用的鏈式配置：WARP MASQUE -> Opera 美國出口。
+"""生成 ClashMi (mihomo) 用的鏈式配置：WARP MASQUE -> Opera 出口。
 
 用法：
-  python3 gen_clashmi.py <opera_login> <opera_password>
-
-例如：
-  python3 gen_clashmi.py 4177774B06E88381A0A3130AA3AEC12C6429A4F0 eyJhbGci...
+  python3 gen_clashmi.py <am_login> <am_password> <eu_login> <eu_password>
 
 讀取同目錄下的 warp-config.json（由 warp_register.py 生成），
 輸出 clashmi.yaml，可直接導入 ClashMi。
-內置 4 個 Opera 美洲出口，生成 ai-us-0 ~ ai-us-3 四個節點。
+生成 ai-us-0~3（美洲）、ai-eu-0~3（歐洲）共 8 個節點。
 """
 import json
 import sys
 
 
-# Opera 美洲區出口（由 opera-proxy -country AM -list-proxies 獲得）
-OPERA_SERVERS = [
+# Opera 出口（由 opera-proxy -country AM/EU -list-proxies 獲得）
+OPERA_AM = [
     ("am0.sec-tunnel.com", "77.111.246.33"),
     ("am1.sec-tunnel.com", "77.111.246.40"),
     ("am2.sec-tunnel.com", "77.111.246.126"),
     ("am3.sec-tunnel.com", "77.111.246.62"),
+]
+OPERA_EU = [
+    ("eu0.sec-tunnel.com", "77.111.247.27"),
+    ("eu1.sec-tunnel.com", "77.111.247.79"),
+    ("eu2.sec-tunnel.com", "77.111.244.209"),
+    ("eu3.sec-tunnel.com", "77.111.247.28"),
 ]
 
 
@@ -30,11 +33,11 @@ def load_warp_config():
 
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 5:
         print(__doc__)
         sys.exit(1)
 
-    opera_login, opera_password = sys.argv[1:3]
+    am_login, am_password, eu_login, eu_password = sys.argv[1:5]
 
     wc = load_warp_config()
 
@@ -69,22 +72,34 @@ def main():
     masque_ip = "162.159.198.1"
     masque_port = 443
 
-    # 生成 4 個 Opera 節點
+    # 生成 Opera 節點：美洲 ai-us-0~3，歐洲 ai-eu-0~3
     opera_nodes = []
-    for i, (host, ip) in enumerate(OPERA_SERVERS):
+    for i, (host, ip) in enumerate(OPERA_AM):
         opera_nodes.append(f"""  - name: ai-us-{i}
     type: http
     server: {ip}
     port: 443
-    username: {opera_login}
-    password: {opera_password}
+    username: {am_login}
+    password: {am_password}
+    tls: true
+    sni: {host}
+    skip-cert-verify: false
+    dialer-proxy: warp-masque""")
+    for i, (host, ip) in enumerate(OPERA_EU):
+        opera_nodes.append(f"""  - name: ai-eu-{i}
+    type: http
+    server: {ip}
+    port: 443
+    username: {eu_login}
+    password: {eu_password}
     tls: true
     sni: {host}
     skip-cert-verify: false
     dialer-proxy: warp-masque""")
 
     opera_proxies = "\n".join(opera_nodes)
-    opera_names = "\n".join(f"      - ai-us-{i}" for i in range(len(OPERA_SERVERS)))
+    us_names = "\n".join(f"      - ai-us-{i}" for i in range(len(OPERA_AM)))
+    eu_names = "\n".join(f"      - ai-eu-{i}" for i in range(len(OPERA_EU)))
     opera_rules = "\n".join(
         f"  - DOMAIN-SUFFIX,{d},ai-us-0"
         for d in ["openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com"]
@@ -110,7 +125,8 @@ proxy-groups:
   - name: PROXY
     type: select
     proxies:
-{opera_names}
+{us_names}
+{eu_names}
       - warp-masque
       - DIRECT
 
@@ -123,8 +139,8 @@ rules:
         f.write(yaml_content)
 
     print("已生成 clashmi.yaml")
-    print(f"共 {len(OPERA_SERVERS)} 個 Opera 出口節點：ai-us-0 ~ ai-us-{len(OPERA_SERVERS)-1}")
-    print("導入到 ClashMi，在 PROXY 組裡逐個試，ChatGPT 規則默認走 ai-us-0。")
+    print(f"美國節點：ai-us-0 ~ ai-us-{len(OPERA_AM)-1}，歐洲節點：ai-eu-0 ~ ai-eu-{len(OPERA_EU)-1}")
+    print("導入到 ClashMi，在 PROXY 組裡逐個試。")
 
 
 if __name__ == "__main__":
