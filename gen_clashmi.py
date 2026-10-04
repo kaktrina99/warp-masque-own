@@ -21,12 +21,17 @@ def load_warp_config():
 
 
 def derive_public_key(priv_b64):
-    """從 base64 私鑰推導 X25519 公鑰（WireGuard/MASQUE 用）。"""
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    """從 base64 SEC1 DER 私鑰推導 PKIX DER 公鑰（P-256，MASQUE 用）。"""
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import serialization
     raw = base64.b64decode(priv_b64)
-    priv = X25519PrivateKey.from_private_bytes(raw)
+    priv = serialization.load_der_private_key(raw, password=None)
     pub = priv.public_key()
-    return base64.b64encode(pub.public_bytes_raw()).decode()
+    pub_der = pub.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return base64.b64encode(pub_der).decode()
 
 
 def main():
