@@ -2,16 +2,26 @@
 """生成 ClashMi (mihomo) 用的鏈式配置：WARP MASQUE -> Opera 美國出口。
 
 用法：
-  python3 gen_clashmi.py <opera_login> <opera_password> <opera_host> <opera_ip>
+  python3 gen_clashmi.py <opera_login> <opera_password>
 
 例如：
-  python3 gen_clashmi.py 4177774B06E88381A0A3130AA3AEC12C6429A4F0 eyJhbGci... am0.sec-tunnel.com 77.111.246.33
+  python3 gen_clashmi.py 4177774B06E88381A0A3130AA3AEC12C6429A4F0 eyJhbGci...
 
 讀取同目錄下的 warp-config.json（由 warp_register.py 生成），
 輸出 clashmi.yaml，可直接導入 ClashMi。
+內置 4 個 Opera 美洲出口，生成 ai-us-0 ~ ai-us-3 四個節點。
 """
 import json
 import sys
+
+
+# Opera 美洲區出口（由 opera-proxy -country AM -list-proxies 獲得）
+OPERA_SERVERS = [
+    ("am0.sec-tunnel.com", "77.111.246.33"),
+    ("am1.sec-tunnel.com", "77.111.246.40"),
+    ("am2.sec-tunnel.com", "77.111.246.126"),
+    ("am3.sec-tunnel.com", "77.111.246.62"),
+]
 
 
 def load_warp_config():
@@ -20,11 +30,11 @@ def load_warp_config():
 
 
 def main():
-    if len(sys.argv) != 5:
+    if len(sys.argv) != 3:
         print(__doc__)
         sys.exit(1)
 
-    opera_login, opera_password, opera_host, opera_ip = sys.argv[1:5]
+    opera_login, opera_password = sys.argv[1:3]
 
     wc = load_warp_config()
 
@@ -59,6 +69,27 @@ def main():
     masque_ip = "162.159.198.1"
     masque_port = 443
 
+    # 生成 4 個 Opera 節點
+    opera_nodes = []
+    for i, (host, ip) in enumerate(OPERA_SERVERS):
+        opera_nodes.append(f"""  - name: ai-us-{i}
+    type: http
+    server: {ip}
+    port: 443
+    username: {opera_login}
+    password: {opera_password}
+    tls: true
+    sni: {host}
+    skip-cert-verify: false
+    dialer-proxy: warp-masque""")
+
+    opera_proxies = "\n".join(opera_nodes)
+    opera_names = "\n".join(f"      - ai-us-{i}" for i in range(len(OPERA_SERVERS)))
+    opera_rules = "\n".join(
+        f"  - DOMAIN-SUFFIX,{d},ai-us-0"
+        for d in ["openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com"]
+    )
+
     yaml_content = f"""# ClashMi 配置：WARP MASQUE -> Opera 美國出口 -> 目標
 # 由 gen_clashmi.py 自動生成
 
@@ -73,30 +104,18 @@ proxies:
     ipv6: {v6}
     udp: true
 
-  - name: ai-us
-    type: http
-    server: {opera_ip}
-    port: 443
-    username: {opera_login}
-    password: {opera_password}
-    tls: true
-    sni: {opera_host}
-    skip-cert-verify: false
-    dialer-proxy: warp-masque
+{opera_proxies}
 
 proxy-groups:
   - name: PROXY
     type: select
     proxies:
-      - ai-us
+{opera_names}
       - warp-masque
       - DIRECT
 
 rules:
-  - DOMAIN-SUFFIX,openai.com,ai-us
-  - DOMAIN-SUFFIX,chatgpt.com,ai-us
-  - DOMAIN-SUFFIX,oaistatic.com,ai-us
-  - DOMAIN-SUFFIX,oaiusercontent.com,ai-us
+{opera_rules}
   - MATCH,PROXY
 """
 
@@ -104,7 +123,8 @@ rules:
         f.write(yaml_content)
 
     print("已生成 clashmi.yaml")
-    print("導入到 ClashMi，選擇 'ai-us' 節點，ChatGPT 流量走美國出口，其他走 PROXY 規則。")
+    print(f"共 {len(OPERA_SERVERS)} 個 Opera 出口節點：ai-us-0 ~ ai-us-{len(OPERA_SERVERS)-1}")
+    print("導入到 ClashMi，在 PROXY 組裡逐個試，ChatGPT 規則默認走 ai-us-0。")
 
 
 if __name__ == "__main__":
